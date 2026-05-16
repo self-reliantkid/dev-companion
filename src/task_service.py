@@ -48,7 +48,8 @@ class TaskService:
         self.tasks = {}
         self._next_id = 1
 
-    def create_task(self, title, description="", priority="medium"):
+    # STALE: function signature changed - added due_date and tags parameters but docstring not updated
+    def create_task(self, title, description="",     priority="medium", due_date=None, tags=None):
         """Create a new task and add it to the service.
         
         Args:
