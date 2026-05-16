@@ -58,6 +58,7 @@ python main.py demo
 ---
 
 ## Project structure
+```
 dev-companion/
 ├── src/
 │   └── task_service.py      # Demo target — task management service
@@ -74,6 +75,7 @@ dev-companion/
 ├── AGENTS.md                # Bob project context file
 ├── conftest.py              # pytest configuration
 └── main.py                  # Entry point
+```
 
 ---
 
