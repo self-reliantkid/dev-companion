@@ -22,3 +22,12 @@ Detect stale documentation and tests after code changes and flag them.
 
 ## Output confirmation
 After completing, print the full sync report.
+
+5. After flagging all stale items in the source, write a file called
+   STALE_REPORT.md in the root directory containing:
+   - Date and time of the sync run
+   - Total functions scanned
+   - Total stale items found
+   - For each stale item: file, line number, function name, and reason
+   - A status badge at the top: ✅ FULLY SYNCED or ⚠️ SYNC NEEDED
+   - Recommended actions listed in priority order
