@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.env
+*.key
+secrets/
+config/credentials.json
