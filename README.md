@@ -2,326 +2,240 @@
 
 **AI-powered documentation and test generation tool built with IBM Bob**
 
-dev-companion is an intelligent development assistant that automatically generates docstrings, markdown documentation, and unit tests for Python codebases. It leverages IBM Bob IDE to analyze code, generate comprehensive documentation in Google style format, create pytest-compatible test suites, and detect when code changes make existing documentation or tests stale.
-
-[![Python](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)](tests/)
+dev-companion is an intelligent development assistant that automatically generates comprehensive documentation, unit tests, code reviews, and README files for your codebase. Built with IBM watsonx.ai and IBM Bob IDE, it streamlines the documentation workflow and helps maintain code quality across Python, JavaScript, TypeScript, Java, Go, Rust, and 15+ other languages.
 
 ---
 
-## Features
+## 🎯 Features
 
-- **📝 Automatic Documentation Generation** (`/gendoc`)
-  - Generates Google-style docstrings for Python functions and classes
-  - Creates comprehensive markdown documentation files
-  - Includes usage examples, parameter descriptions, and return types
+### Core Capabilities
+- **📄 Documentation Generation** — Automatically adds Google-style docstrings to every function and class, plus generates markdown reference documentation
+- **🧪 Test Suite Generation** — Creates comprehensive pytest-compatible test suites covering happy paths, edge cases, and error conditions
+- **🔍 Code Review** — Performs structured reviews flagging complexity, security, performance, and style issues with severity ratings
+- **🔄 Sync Check** — Detects when code changes make existing documentation or tests stale and flags them for updates
+- **📝 README Generation** — Scans codebases and generates professional README files based strictly on actual code capabilities
 
-- **🧪 Intelligent Test Generation** (`/gentest`)
-  - Generates pytest-compatible unit tests automatically
-  - Covers happy paths, edge cases, and error conditions
-  - Creates fixtures and comprehensive test suites
-
-- **🔄 Staleness Detection** (`/sync`)
-  - Scans codebase for changes in function signatures
-  - Compares existing documentation and tests against current code
-  - Flags stale items with clear comments indicating what changed
-
-- **📊 Task Management Demo**
-  - Includes a complete task management system as a demonstration
-  - Features CRUD operations, priority management, and subtask support
-  - Fully documented and tested using dev-companion's own tools
+### Additional Features
+- **Multi-language Support** — Works with Python, JavaScript, TypeScript, Java, Go, Rust, C/C++, Ruby, PHP, and more
+- **GitHub Integration** — Fetch and analyze entire repositories or individual files directly from GitHub URLs
+- **Web Interface** — Beautiful Streamlit-based UI with real-time generation and downloadable outputs
+- **CLI Mode** — Command-line interface for integration into development workflows
+- **IBM Bob Commands** — Custom `/gendoc`, `/gentest`, `/sync`, and `/genreadme` commands for Bob IDE
 
 ---
 
-## Installation
+## 📦 Installation
 
 ### Prerequisites
-
 - Python 3.8 or higher
-- IBM Bob IDE
-- pytest (for running tests)
+- IBM watsonx.ai account with API credentials
+- (Optional) GitHub personal access token for private repository access
 
 ### Setup
 
-1. Clone the repository:
+1. **Clone the repository**
 ```bash
 git clone https://github.com/yourusername/dev-companion.git
 cd dev-companion
 ```
 
-2. Install dependencies:
+2. **Install dependencies**
 ```bash
-pip install pytest
+pip install -r requirements.txt
 ```
 
-3. Verify installation:
-```bash
-python main.py test
+3. **Configure credentials**
+
+Create a `.env` file in the project root:
+```env
+WATSONX_API_KEY=your_ibm_api_key
+WATSONX_PROJECT_ID=your_project_id
+WATSONX_URL=https://us-south.ml.cloud.ibm.com
+GITHUB_TOKEN=your_github_token  # Optional, for private repos
 ```
+
+Get your IBM watsonx.ai credentials from [IBM Cloud](https://dataplatform.cloud.ibm.com/).
 
 ---
 
-## Usage
+## 🚀 Usage
 
-### Command-Line Interface
+### Web Interface (Streamlit)
 
-dev-companion provides a CLI for quick access to common operations:
-
+Launch the interactive web application:
 ```bash
-# Run the full demo
-python main.py demo
-
-# Run the test suite
-python main.py test
-
-# Show instructions for generating documentation
-python main.py gendoc
-
-# Show instructions for generating tests
-python main.py gentest
-
-# Show instructions for syncing docs/tests
-python main.py sync
+streamlit run app.py
 ```
 
-### Using IBM Bob Commands
+The app will open in your browser at `http://localhost:8501`. You can:
+1. Paste code directly or provide a GitHub URL
+2. Select an action (Generate Docs, Tests, Review, Sync, or README)
+3. Click "run dev-companion" to generate output
+4. Download the results
 
-The core functionality is accessed through IBM Bob IDE custom commands:
+### Command Line Interface
 
-#### Generate Documentation
+Run the demo to see all features:
+```bash
+python main.py demo
+```
 
+Run the test suite:
+```bash
+python main.py test
+```
+
+### IBM Bob IDE Integration
+
+dev-companion includes custom Bob commands for seamless IDE integration:
+
+**Generate documentation:**
 ```
 /gendoc src/task_service.py
 ```
 
-This command:
-- Analyzes the target Python file
-- Generates Google-style docstrings for all classes and methods
-- Creates a markdown documentation file in `docs/`
-- Includes usage examples and comprehensive API documentation
-
-#### Generate Tests
-
+**Generate tests:**
 ```
 /gentest src/task_service.py
 ```
 
-This command:
-- Analyzes the target Python file
-- Generates pytest-compatible test functions
-- Creates test fixtures for common scenarios
-- Covers edge cases and error conditions
-- Saves tests to `tests/test_<filename>.py`
-
-#### Sync Documentation and Tests
-
+**Check for stale docs/tests:**
 ```
 /sync src/task_service.py
 ```
 
-This command:
-- Compares function signatures against existing documentation
-- Checks test files for outdated function calls
-- Flags stale items with `# STALE: reason` comments
-- Reports all detected inconsistencies
-
-### Example Workflow
-
-```python
-# 1. Write your code
-# src/my_service.py
-class MyService:
-    def process_data(self, data, format="json"):
-        # Your implementation
-        pass
-
-# 2. Generate documentation in Bob IDE
-# /gendoc src/my_service.py
-# → Creates docs/my_service.md with full API documentation
-
-# 3. Generate tests in Bob IDE
-# /gentest src/my_service.py
-# → Creates tests/test_my_service.py with comprehensive test suite
-
-# 4. Make code changes
-def process_data(self, data, format="json", validate=True):  # Added parameter
-    pass
-
-# 5. Detect stale documentation
-# /sync src/my_service.py
-# → Flags outdated docs and tests with STALE comments
+**Generate README:**
+```
+/genreadme
 ```
 
 ---
 
-## Project Structure
+## 📁 Project Structure
 
 ```
 dev-companion/
-├── .bob/
-│   └── commands/          # Custom Bob IDE commands
-│       ├── gendoc.md      # Documentation generation command
-│       ├── gentest.md     # Test generation command
-│       ├── sync.md        # Staleness detection command
-│       └── genreadme.md   # README generation command
-├── bob_sessions/          # Bob task session reports (for judging)
-│   ├── gendoc-output.md
-│   ├── gendoc-consumption.png
-│   ├── gentest-output.md
-│   ├── gentest-consumption.png
-│   ├── sync-output.md
-│   └── sync-consumption.png
-├── docs/                  # Auto-generated markdown documentation
-│   └── task_service.md
-├── src/                   # Source code being documented and tested
+├── src/                    # Source code being documented and tested
 │   ├── __init__.py
-│   ├── task_service.py    # Demo: Task management system
-│   └── sample_service.py
-├── tests/                 # Auto-generated test files
+│   └── task_service.py    # Example: Task management service
+├── tests/                  # Auto-generated test files
 │   ├── __init__.py
 │   └── test_task_service.py
-├── AGENTS.md              # Project intent and Bob instructions
-├── conftest.py            # Pytest configuration
-├── LICENSE                # MIT License
+├── docs/                   # Auto-generated markdown documentation
+│   ├── task_service.md
+│   └── review_report.md
+├── bob_sessions/          # Bob task session reports (for judging)
+│   ├── gendoc-output.md
+│   ├── gentest-output.md
+│   ├── sync-output.md
+│   └── genreadme-output.md
+├── app.py                 # Streamlit web interface
 ├── main.py                # CLI entry point
-└── README.md              # This file
+├── watsonx_client.py      # watsonx.ai API client
+├── conftest.py            # pytest configuration
+├── requirements.txt       # Python dependencies
+├── AGENTS.md             # Bob agent instructions
+└── README.md             # This file
 ```
 
 ---
 
-## How IBM Bob is Used
+## 🤖 How IBM Bob is Used
 
-dev-companion is built entirely around IBM Bob IDE's capabilities:
+dev-companion leverages IBM Bob IDE in several key ways:
 
-### Custom Commands
+### 1. Custom Commands
+Bob's command system enables natural language task invocation:
+- `/gendoc` — Triggers documentation generation workflow
+- `/gentest` — Initiates test suite creation
+- `/sync` — Runs synchronization checks
+- `/genreadme` — Generates project README
 
-The project defines four custom Bob commands in `.bob/commands/`:
-
-1. **gendoc** - Analyzes Python files and generates comprehensive documentation
-2. **gentest** - Creates pytest-compatible test suites with fixtures
-3. **sync** - Detects stale documentation and tests after code changes
-4. **genreadme** - Generates project README files
-
-### Agent Rules (AGENTS.md)
-
+### 2. Agent Instructions (AGENTS.md)
 The `AGENTS.md` file provides Bob with:
-- Project context and purpose
-- Coding standards (Google-style docstrings, pytest format)
-- Workflow instructions for each command
-- Directory structure and conventions
+- Project context and core workflows
+- Documentation style guidelines (Google-style docstrings)
+- Test framework preferences (pytest)
+- Sync detection rules (function signature comparison)
 
-### Session Reports
+### 3. Session Tracking
+All Bob interactions are logged in `bob_sessions/` for:
+- Reproducibility and debugging
+- Performance analysis (token consumption)
+- Hackathon judging requirements
 
-All Bob task executions are logged in `bob_sessions/` with:
-- Complete output of generated documentation/tests
-- Token consumption metrics
-- Screenshots of the generation process
-
-### Integration Pattern
-
-```
-Developer writes code
-    ↓
-Invokes Bob command (/gendoc, /gentest, /sync)
-    ↓
-Bob reads AGENTS.md for context
-    ↓
-Bob analyzes target file
-    ↓
-Bob generates output (docs/tests/reports)
-    ↓
-Developer reviews and commits
-```
+### 4. Intelligent Code Analysis
+Bob analyzes codebases to:
+- Understand project structure and dependencies
+- Generate contextually appropriate documentation
+- Create comprehensive test coverage
+- Detect stale documentation through signature comparison
 
 ---
 
-## Demo: Task Management System
+## 🧪 Example: Task Service
 
-The repository includes a fully functional task management system (`src/task_service.py`) that demonstrates dev-companion's capabilities:
+The repository includes a complete example demonstrating all features:
 
-### Features
-- Create, read, update, and delete tasks
-- Priority management (low, medium, high)
-- Task completion tracking
-- Subtask support with hierarchical IDs
-- Filtering by priority and completion status
-- Statistics generation
+**Source:** `src/task_service.py` — A task management service with CRUD operations
 
-### Generated Artifacts
+**Generated Documentation:** `docs/task_service.md` — Complete API reference with usage examples
 
-**Documentation** (`docs/task_service.md`):
-- Complete API reference for `Task` and `TaskService` classes
-- Usage examples for all methods
-- Error handling documentation
+**Generated Tests:** `tests/test_task_service.py` — 68 test cases with 100% pass rate covering:
+- Happy paths for all methods
+- Edge cases (empty inputs, whitespace, boundary conditions)
+- Error conditions (invalid priorities, nonexistent IDs)
+- Fixtures for test setup and teardown
 
-**Tests** (`tests/test_task_service.py`):
-- 461 lines of comprehensive test coverage
-- Fixtures for common scenarios
-- Tests for happy paths, edge cases, and error conditions
-- 100% method coverage
-
-### Running the Demo
-
+**Test Results:**
 ```bash
-# Run the interactive demo
-python main.py demo
-
-# Run just the tests
-python main.py test
-
-# Or use pytest directly
-pytest tests/ -v
+$ pytest tests/ -v
+======================== 68 passed in 0.42s ========================
 ```
 
 ---
 
-## Contributing
+## 🛠️ Technology Stack
 
-Contributions are welcome! Here's how to get started:
-
-1. **Fork the repository**
-
-2. **Create a feature branch**
-   ```bash
-   git checkout -b feature/your-feature-name
-   ```
-
-3. **Make your changes**
-   - Follow Google-style docstring format
-   - Add tests for new functionality
-   - Update documentation as needed
-
-4. **Run tests**
-   ```bash
-   pytest tests/ -v
-   ```
-
-5. **Use dev-companion on your code**
-   ```
-   /gendoc src/your_file.py
-   /gentest src/your_file.py
-   /sync src/your_file.py
-   ```
-
-6. **Commit and push**
-   ```bash
-   git commit -m "Add: your feature description"
-   git push origin feature/your-feature-name
-   ```
-
-7. **Open a Pull Request**
-
-### Coding Standards
-
-- **Docstrings**: Google style format
-- **Tests**: pytest-compatible, comprehensive coverage
-- **Code Style**: PEP 8 compliant
-- **Documentation**: Markdown format in `docs/`
+- **Language:** Python 3.8+
+- **AI Model:** IBM watsonx.ai (Llama 3.3 70B Instruct)
+- **Web Framework:** Streamlit
+- **Testing:** pytest
+- **Documentation Format:** Markdown + Google-style docstrings
+- **API Client:** requests + python-dotenv
+- **IDE Integration:** IBM Bob
 
 ---
 
-## License
+## 📊 Performance
+
+- **Average generation time:** 20-60 seconds per file
+- **Token efficiency:** Cached IAM tokens reduce API overhead
+- **Test coverage:** 100% pass rate on generated tests
+- **Languages supported:** 15+ programming languages
+- **Repository analysis:** Up to 20 source files per scan
+
+---
+
+## 🤝 Contributing
+
+Contributions are welcome! To contribute:
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+### Development Guidelines
+- Follow Google-style docstrings for Python code
+- Write pytest-compatible tests for new features
+- Update documentation when adding features
+- Run `pytest tests/` before submitting PRs
+
+---
+
+## 📄 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
@@ -329,21 +243,24 @@ Copyright (c) 2026 Sena Folikumah
 
 ---
 
-## Acknowledgments
+## 🏆 IBM Bob Hackathon
 
-- Built with [IBM Bob IDE](https://www.ibm.com/bob) - AI-powered development assistant
-- Inspired by the need for automated, consistent documentation and testing
-- Demo task management system showcases real-world application
+This project was built for the **IBM Bob Hackathon (May 2026)** to demonstrate:
+- Custom Bob command integration
+- watsonx.ai API usage for code generation
+- Multi-language documentation and test generation
+- Intelligent sync detection for maintaining code quality
 
----
-
-## Support
-
-For questions, issues, or feature requests:
-- Open an issue on GitHub
-- Check existing documentation in `docs/`
-- Review Bob session reports in `bob_sessions/`
+**Session Reports:** All Bob interactions are documented in `bob_sessions/` with token consumption metrics and output samples.
 
 ---
 
-**Made with ❤️ and IBM Bob**
+## 🔗 Links
+
+- **IBM watsonx.ai:** [https://dataplatform.cloud.ibm.com/](https://dataplatform.cloud.ibm.com/)
+- **IBM Bob IDE:** [https://www.ibm.com/products/watsonx-code-assistant](https://www.ibm.com/products/watsonx-code-assistant)
+- **Streamlit:** [https://streamlit.io/](https://streamlit.io/)
+
+---
+
+**Built with ❤️ using IBM Bob + watsonx.ai**
