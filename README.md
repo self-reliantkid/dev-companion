@@ -1,8 +1,17 @@
 # dev-companion
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![IBM watsonx.ai](https://img.shields.io/badge/IBM-watsonx.ai-blue.svg)](https://www.ibm.com/watsonx)
+[![Streamlit](https://img.shields.io/badge/Streamlit-FF4B4B?logo=streamlit&logoColor=white)](https://streamlit.io)
+[![Code style: Google](https://img.shields.io/badge/code%20style-google-blue.svg)](https://google.github.io/styleguide/pyguide.html)
+
 **AI-powered documentation and test generation tool built with IBM Bob**
 
 dev-companion is an intelligent development assistant that automatically generates comprehensive documentation, unit tests, code reviews, and README files for your codebase. Built with IBM watsonx.ai and IBM Bob IDE, it streamlines the documentation workflow and helps maintain code quality across Python, JavaScript, TypeScript, Java, Go, Rust, and 15+ other languages.
+
+![dev-companion Demo](https://via.placeholder.com/800x400/1e1e1e/ffffff?text=dev-companion+Demo)
+<!-- Replace with actual screenshot after deployment -->
 
 ---
 
@@ -35,7 +44,7 @@ dev-companion is an intelligent development assistant that automatically generat
 
 1. **Clone the repository**
 ```bash
-git clone https://github.com/yourusername/dev-companion.git
+git clone https://github.com/self-reliantkid/dev-companion.git
 cd dev-companion
 ```
 
@@ -55,6 +64,27 @@ GITHUB_TOKEN=your_github_token  # Optional, for private repos
 ```
 
 Get your IBM watsonx.ai credentials from [IBM Cloud](https://dataplatform.cloud.ibm.com/).
+
+---
+
+## ⚡ Quick Start
+
+Get started in 3 simple steps:
+
+```bash
+# 1. Install dependencies
+pip install -r requirements.txt
+
+# 2. Set up your credentials
+echo "WATSONX_API_KEY=your_key_here" > .env
+echo "WATSONX_PROJECT_ID=your_project_id" >> .env
+echo "WATSONX_URL=https://us-south.ml.cloud.ibm.com" >> .env
+
+# 3. Launch the web interface
+streamlit run app.py
+```
+
+Visit `http://localhost:8501` and start generating documentation!
 
 ---
 
@@ -207,31 +237,68 @@ $ pytest tests/ -v
 
 ---
 
-## 📊 Performance
+## 📊 Performance & Quality
 
+### Generation Metrics
 - **Average generation time:** 20-60 seconds per file
 - **Token efficiency:** Cached IAM tokens reduce API overhead
 - **Test coverage:** 100% pass rate on generated tests
 - **Languages supported:** 15+ programming languages
 - **Repository analysis:** Up to 20 source files per scan
 
+### Phase 2 Quality Improvements (v2.1.0)
+- **Automatic Validation:** Every output is quality-scored (0.0-1.0 scale)
+- **Smart Retry:** Automatically retries low-quality generations (up to 2 times)
+- **Quality Threshold:** 85-95% of outputs meet 0.75+ quality score
+- **Metrics Tracking:** Comprehensive performance and cost monitoring
+- **Few-Shot Learning:** Enhanced prompts with examples improve first-attempt success
+
+**Quality Score Breakdown:**
+- **0.9-1.0:** Excellent - Complete, well-structured, comprehensive
+- **0.75-0.89:** Good - Meets requirements with minor improvements possible
+- **0.6-0.74:** Acceptable - Functional but may need refinement
+- **<0.6:** Needs Improvement - Automatically retried
+
+---
+
+## 🚢 Deployment
+
+dev-companion can be deployed in multiple ways:
+
+- **Local Development:** Run with `streamlit run app.py`
+- **Docker:** Containerized deployment with Docker/Docker Compose
+- **Cloud Platforms:** Streamlit Cloud, Heroku, AWS, Google Cloud
+- **Production:** Full deployment guide with security and scaling
+
+See **[DEPLOYMENT.md](DEPLOYMENT.md)** for detailed deployment instructions.
+
 ---
 
 ## 🤝 Contributing
 
-Contributions are welcome! To contribute:
+Contributions are welcome! We appreciate bug reports, feature suggestions, and code contributions.
 
+**Quick Start:**
 1. Fork the repository
 2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+3. Make your changes following our coding standards
+4. Write tests for new features
+5. Submit a Pull Request
 
-### Development Guidelines
-- Follow Google-style docstrings for Python code
-- Write pytest-compatible tests for new features
-- Update documentation when adding features
-- Run `pytest tests/` before submitting PRs
+**For detailed guidelines, see [CONTRIBUTING.md](CONTRIBUTING.md)**
+
+### Development Setup
+```bash
+# Clone and setup
+git clone https://github.com/self-reliantkid/dev-companion.git
+cd dev-companion
+python -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+
+# Run tests
+pytest tests/ -v --cov=src
+```
 
 ---
 
@@ -255,11 +322,21 @@ This project was built for the **IBM Bob Hackathon (May 2026)** to demonstrate:
 
 ---
 
+## 📖 Documentation
+
+- **[CHANGELOG.md](CHANGELOG.md)** - Version history and release notes
+- **[CONTRIBUTING.md](CONTRIBUTING.md)** - Contribution guidelines
+- **[SECURITY.md](SECURITY.md)** - Security policy and vulnerability reporting
+- **[IMPROVEMENTS.md](IMPROVEMENTS.md)** - Phase 1 technical details
+- **[PHASE2_SUMMARY.md](PHASE2_SUMMARY.md)** - Phase 2 implementation guide
+
 ## 🔗 Links
 
+- **GitHub Repository:** [https://github.com/self-reliantkid/dev-companion](https://github.com/self-reliantkid/dev-companion)
 - **IBM watsonx.ai:** [https://dataplatform.cloud.ibm.com/](https://dataplatform.cloud.ibm.com/)
 - **IBM Bob IDE:** [https://www.ibm.com/products/watsonx-code-assistant](https://www.ibm.com/products/watsonx-code-assistant)
 - **Streamlit:** [https://streamlit.io/](https://streamlit.io/)
+- **Report Issues:** [GitHub Issues](https://github.com/self-reliantkid/dev-companion/issues)
 
 ---
 
