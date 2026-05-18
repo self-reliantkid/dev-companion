@@ -1,6 +1,7 @@
 import streamlit as st
 import os
 import io
+import time
 import requests
 import base64
 from urllib.parse import urlparse
@@ -486,7 +487,7 @@ def render_tool():
                 files, err, capped, total = fetch_github_files(github_url.strip())
             if err:
                 st.error(f"⚠ {err}")
-            else:
+            elif files:
                 if capped:
                     st.warning(f"⚠ Repo has {total} files — only the first {REPO_FILE_CAP} source files were fetched. For full analysis, link directly to a file.")
                 st.success(f"✓ Fetched {len(files)} file(s)")
@@ -577,8 +578,7 @@ def render_tool():
         lang_label = detected_lang if detected_lang and detected_lang != "Unknown" else "Python"
         lang_short = lang_label.lower().split()[0]
 
-        import time as _time
-        t0 = _time.time()
+        t0 = time.time()
 
         # Pulsing output header shown while streaming
         st.markdown(f"""
@@ -588,11 +588,14 @@ def render_tool():
     <div class="output-time" id="otime">streaming · {lang_label}</div>
 </div>""", unsafe_allow_html=True)
 
+        full = ""
+        elapsed = 0.0
+        
         try:
             if action == "docs":
                 # Docs splits into two parts — stream into a buffer then separate
-                full = st.write_stream(stream_docs(user_code, lang_label))
-                elapsed = round(_time.time() - t0, 1)
+                full = "".join(st.write_stream(stream_docs(user_code, lang_label)))
+                elapsed = round(time.time() - t0, 1)
                 st.markdown(f'<div style="font-family:\'JetBrains Mono\',monospace;font-size:10px;color:#4b5563;margin-bottom:1rem;">✓ done in {elapsed}s</div>', unsafe_allow_html=True)
                 if "### MARKDOWN_DOCS ###" in full:
                     code_part, md_part = full.split("### MARKDOWN_DOCS ###", 1)
@@ -607,27 +610,27 @@ def render_tool():
                     st.download_button("⬇ documented_code", full, file_name=f"documented_code.{lang_short}")
 
             elif action == "tests":
-                full = st.write_stream(stream_tests(user_code, lang_label))
-                elapsed = round(_time.time() - t0, 1)
+                full = "".join(st.write_stream(stream_tests(user_code, lang_label)))
+                elapsed = round(time.time() - t0, 1)
                 st.markdown(f'<div style="font-family:\'JetBrains Mono\',monospace;font-size:10px;color:#4b5563;margin-bottom:1rem;">✓ done in {elapsed}s</div>', unsafe_allow_html=True)
                 st.code(full, language=lang_short)
                 st.download_button("⬇ test_generated.py", full, file_name="test_generated.py")
 
             elif action == "review":
-                full = st.write_stream(stream_review(user_code, lang_label))
-                elapsed = round(_time.time() - t0, 1)
+                full = "".join(st.write_stream(stream_review(user_code, lang_label)))
+                elapsed = round(time.time() - t0, 1)
                 st.markdown(f'<div style="font-family:\'JetBrains Mono\',monospace;font-size:10px;color:#4b5563;margin-bottom:1rem;">✓ done in {elapsed}s</div>', unsafe_allow_html=True)
                 st.download_button("⬇ review_report.md", full, file_name="review_report.md")
 
             elif action == "sync":
-                full = st.write_stream(stream_sync(user_code, extra_docs, extra_tests, lang_label))
-                elapsed = round(_time.time() - t0, 1)
+                full = "".join(st.write_stream(stream_sync(user_code, extra_docs, extra_tests, lang_label)))
+                elapsed = round(time.time() - t0, 1)
                 st.markdown(f'<div style="font-family:\'JetBrains Mono\',monospace;font-size:10px;color:#4b5563;margin-bottom:1rem;">✓ done in {elapsed}s</div>', unsafe_allow_html=True)
                 st.download_button("⬇ sync_report.md", full, file_name="sync_report.md")
 
             elif action == "readme":
-                full = st.write_stream(stream_readme(user_code, extra_structure, lang_label))
-                elapsed = round(_time.time() - t0, 1)
+                full = "".join(st.write_stream(stream_readme(user_code, extra_structure, lang_label)))
+                elapsed = round(time.time() - t0, 1)
                 st.markdown(f'<div style="font-family:\'JetBrains Mono\',monospace;font-size:10px;color:#4b5563;margin-bottom:1rem;">✓ done in {elapsed}s</div>', unsafe_allow_html=True)
                 st.download_button("⬇ README.md", full, file_name="README.md")
 
