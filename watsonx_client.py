@@ -1,7 +1,9 @@
 import os
 import re
 import time
+import json
 import requests
+from typing import Generator
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -13,8 +15,7 @@ _token_cache: dict = {"token": None, "expires_at": 0.0}
 def _get_iam_token() -> str:
     """Exchange IBM API key for a short-lived IAM bearer token.
 
-    Caches the token and only refreshes when within 60 seconds of expiry,
-    avoiding a redundant auth roundtrip on every generate() call.
+    Caches the token and only refreshes when within 60 seconds of expiry.
 
     Returns:
         str: A valid IAM bearer token.
@@ -29,7 +30,6 @@ def _get_iam_token() -> str:
             "WATSONX_API_KEY is not set. "
             "Add it to your .env file or Streamlit secrets."
         )
-
     if _token_cache["token"] and time.time() < _token_cache["expires_at"] - 60:
         return _token_cache["token"]
 
@@ -52,14 +52,11 @@ def _get_iam_token() -> str:
 # ─── LLAMA 3 CHAT TEMPLATE ───────────────────────────────────────────────────
 
 def _build_prompt(system: str, user: str) -> str:
-    """Wrap system and user messages in the Llama 3 instruct chat template.
-
-    llama-3-3-70b-instruct expects this exact format. Sending a raw string
-    bypasses the instruction tuning and produces noticeably weaker output.
+    """Wrap messages in the Llama 3 instruct chat template.
 
     Args:
         system: System prompt defining role, rules, and output format.
-        user: User-turn message containing the code and specific task.
+        user: User-turn message containing the code and task.
 
     Returns:
         str: Correctly formatted prompt string for the watsonx input field.
@@ -78,9 +75,6 @@ def _build_prompt(system: str, user: str) -> str:
 
 # ─── LANGUAGE PROFILES ───────────────────────────────────────────────────────
 
-# Per-language doc style, test framework, and conventions.
-# Injected into prompts so the model produces genuinely idiomatic output
-# rather than generic Python-flavoured answers for every language.
 _LANG_PROFILES = {
     "python": {
         "doc_style": "Google-style docstrings (Args, Returns, Raises, Example sections)",
@@ -145,7 +139,7 @@ _LANG_PROFILES = {
             "use #[cfg(test)] mod tests { use super::*; }, "
             "#[test] fn, assert_eq! with message, #[should_panic(expected=)] for panics"
         ),
-        "style_guide": "Rust API Guidelines (https://rust-lang.github.io/api-guidelines/)",
+        "style_guide": "Rust API Guidelines",
         "import_style": "use super::* inside the tests module",
     },
     "c#": {
@@ -156,7 +150,7 @@ _LANG_PROFILES = {
             "Assert.Equal / Assert.Throws<T>, use IDisposable for cleanup"
         ),
         "style_guide": "Microsoft C# Coding Conventions",
-        "import_style": "using Xunit; using Xunit.Abstractions;",
+        "import_style": "using Xunit;",
     },
     "ruby": {
         "doc_style": "YARD (@param name [Type] description, @return [Type], @raise [ExceptionClass], @example)",
@@ -180,32 +174,24 @@ _DEFAULT_PROFILE = {
 
 
 def _get_profile(language: str) -> dict:
-    """Look up the language profile for prompt injection.
-
-    Args:
-        language: Language string as detected or provided
-                  (e.g. "Python", "JavaScript (React)", "TypeScript").
-
-    Returns:
-        dict: Language profile with doc_style, test_framework, etc.
-    """
     key = language.lower().split()[0].rstrip("(")
     return _LANG_PROFILES.get(key, _DEFAULT_PROFILE)
 
 
-# ─── CORE GENERATE ───────────────────────────────────────────────────────────
+# ─── CORE: BLOCKING GENERATE ─────────────────────────────────────────────────
 
 def _generate(prompt: str, max_tokens: int = 4096, temperature: float = 0.15) -> str:
-    """Call the watsonx.ai text generation REST endpoint.
+    """Call the watsonx.ai text generation endpoint (blocking, full response).
+
+    Used as a fallback for contexts where streaming isn't supported.
 
     Args:
         prompt: Fully formatted Llama 3 chat-template prompt string.
-        max_tokens: Maximum new tokens. 4096 default prevents mid-output
-                    truncation on large files (old default of 3000 was too low).
-        temperature: Sampling temperature. 0.1-0.2 for code, 0.3 for prose.
+        max_tokens: Maximum new tokens to generate.
+        temperature: Sampling temperature.
 
     Returns:
-        str: Generated text, stripped of leading/trailing whitespace.
+        str: Complete generated text, stripped of whitespace.
 
     Raises:
         ValueError: If WATSONX_PROJECT_ID is not set.
@@ -235,8 +221,6 @@ def _generate(prompt: str, max_tokens: int = 4096, temperature: float = 0.15) ->
             "parameters": {
                 "max_new_tokens": max_tokens,
                 "temperature": temperature,
-                # repetition_penalty removed — it penalised re-use of variable
-                # and function names, which are legitimately repeated in code.
                 "stop_sequences": ["<|eot_id|>", "---END---"],
             },
         },
@@ -247,24 +231,89 @@ def _generate(prompt: str, max_tokens: int = 4096, temperature: float = 0.15) ->
     return results[0].get("generated_text", "").strip() if results else ""
 
 
-# ─── FEATURE FUNCTIONS ───────────────────────────────────────────────────────
+# ─── CORE: STREAMING GENERATE ────────────────────────────────────────────────
 
-def generate_docs(code: str, language: str = "Python") -> str:
-    """Generate inline documentation comments and a markdown API reference.
+def _generate_stream(
+    prompt: str, max_tokens: int = 4096, temperature: float = 0.15
+) -> Generator[str, None, None]:
+    """Call the watsonx.ai streaming endpoint and yield text chunks as they arrive.
 
-    Produces language-idiomatic doc comments inserted directly into the code,
-    plus a structured markdown reference section delimited by ### MARKDOWN_DOCS ###.
+    Uses the /ml/v1/text/generation_stream SSE endpoint. Each server-sent event
+    contains a JSON payload with a generated_text field holding the next token
+    or token group. This function yields those chunks so callers can display
+    output progressively rather than waiting for the full response.
 
     Args:
-        code: Source code string to document.
-        language: Programming language name (e.g. "Python", "TypeScript").
+        prompt: Fully formatted Llama 3 chat-template prompt string.
+        max_tokens: Maximum new tokens to generate.
+        temperature: Sampling temperature.
 
-    Returns:
-        str: Documented source code optionally followed by ### MARKDOWN_DOCS ###
-             and a markdown API reference.
+    Yields:
+        str: Text chunks as they are received from the model.
+
+    Raises:
+        ValueError: If WATSONX_PROJECT_ID is not set.
+        requests.HTTPError: If the endpoint returns a non-2xx response.
     """
-    p = _get_profile(language)
+    project_id = os.getenv("WATSONX_PROJECT_ID")
+    if not project_id:
+        raise ValueError(
+            "WATSONX_PROJECT_ID is not set. "
+            "Add it to your .env file or Streamlit secrets."
+        )
 
+    token = _get_iam_token()
+    base_url = os.getenv("WATSONX_URL", "https://us-south.ml.cloud.ibm.com").rstrip("/")
+
+    with requests.post(
+        f"{base_url}/ml/v1/text/generation_stream?version=2023-05-29",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+            "Accept": "text/event-stream",
+        },
+        json={
+            "model_id": "meta-llama/llama-3-3-70b-instruct",
+            "project_id": project_id,
+            "input": prompt,
+            "parameters": {
+                "max_new_tokens": max_tokens,
+                "temperature": temperature,
+                "stop_sequences": ["<|eot_id|>", "---END---"],
+            },
+        },
+        stream=True,
+        timeout=120,
+    ) as resp:
+        resp.raise_for_status()
+        for raw_line in resp.iter_lines():
+            if not raw_line:
+                continue
+            line = raw_line.decode("utf-8") if isinstance(raw_line, bytes) else raw_line
+            # SSE lines look like:  data: {"results": [{"generated_text": "..."}]}
+            if not line.startswith("data:"):
+                continue
+            payload = line[5:].strip()
+            if payload in ("[DONE]", ""):
+                continue
+            try:
+                chunk = json.loads(payload)
+                results = chunk.get("results", [])
+                if results:
+                    text = results[0].get("generated_text", "")
+                    if text:
+                        yield text
+            except json.JSONDecodeError:
+                continue
+
+
+# ─── FEATURE STREAMING WRAPPERS ──────────────────────────────────────────────
+# Each public function now returns a generator via _generate_stream.
+# The app uses st.write_stream() to render these directly.
+# _build_*_prompt helpers keep the prompt logic separate from the streaming logic.
+
+def _build_docs_prompt(code: str, language: str) -> tuple[str, str]:
+    p = _get_profile(language)
     system = f"""You are a senior {language} engineer and technical writer with expertise in production-quality documentation.
 
 Your task: add comprehensive documentation to {language} source code.
@@ -274,7 +323,6 @@ RULES:
 - Document EVERY function, method, and class — do not skip any
 - For each function include: one-line summary, Args (name, type, description), Returns (type + description), Raises (exception type + when), and an Example for non-obvious functions
 - Do NOT change any logic, variable names, or structure — add documentation only
-- Do NOT add comments inside function bodies unless explaining genuinely complex logic
 - Follow {p['style_guide']} throughout
 
 OUTPUT STRUCTURE:
@@ -292,25 +340,11 @@ OUTPUT STRUCTURE:
 ```
 
 Return: documented source code → ### MARKDOWN_DOCS ### → markdown API reference."""
+    return system, user
 
-    return _generate(_build_prompt(system, user), max_tokens=4096, temperature=0.15)
 
-
-def generate_tests(code: str, language: str = "Python") -> str:
-    """Generate a comprehensive, immediately runnable test suite.
-
-    Covers happy paths, edge cases, boundary conditions, and error handling
-    using the idiomatic test framework for the target language.
-
-    Args:
-        code: Source code string to generate tests for.
-        language: Programming language name.
-
-    Returns:
-        str: A complete, runnable test file with no placeholders or stubs.
-    """
+def _build_tests_prompt(code: str, language: str) -> tuple[str, str]:
     p = _get_profile(language)
-
     system = f"""You are a senior {language} engineer specialising in test-driven development.
 
 Your task: write a production-quality test suite using {p['test_framework']} for {language} code.
@@ -321,217 +355,109 @@ RULES:
 - Cover ALL of the following for every public function/method:
   1. Happy path — normal expected input and output
   2. Edge cases — empty input, zero, None/null, empty string, empty list/array
-  3. Boundary values — min/max values, single-element collections, very large inputs
+  3. Boundary values — min/max values, single-element collections
   4. Error conditions — invalid types, out-of-range values, expected exceptions
 - Test names must read as sentences: test_add_two_positive_numbers_returns_correct_sum
-- Add a one-line comment above each test group: # --- Tests for ClassName.method_name ---
 - Every test must be self-contained and runnable independently
-- Write REAL tests — no "# TODO: add test here" or empty test bodies
-- Do NOT test private/internal methods directly
+- Write REAL tests — no placeholder comments or empty test bodies
 
 OUTPUT: The complete test file only. No explanation. No markdown fences wrapping the whole file."""
 
     user = f"""Write a complete {p['test_framework']} test suite for this {language} code.
-
-Every public function and method needs tests for happy paths, edge cases, boundaries, and errors.
 
 ```{language.lower().split()[0]}
 {code}
 ```
 
 Return the complete runnable test file:"""
+    return system, user
 
-    return _generate(_build_prompt(system, user), max_tokens=4096, temperature=0.15)
 
-
-def generate_review(code: str, language: str = "Python") -> str:
-    """Perform a structured senior-level code review.
-
-    Analyses for correctness, security, performance, maintainability, error
-    handling, and language idioms. Returns a structured markdown report with
-    severity ratings and concrete fix suggestions.
-
-    Args:
-        code: Source code string to review.
-        language: Programming language name.
-
-    Returns:
-        str: Markdown review report with categorised issues and health score.
-    """
+def _build_review_prompt(code: str, language: str) -> tuple[str, str]:
     p = _get_profile(language)
-
     system = f"""You are a principal {language} engineer conducting a thorough code review. You follow {p['style_guide']}.
 
-Be specific and actionable. Cite actual function names and line numbers. Do not pad with generic praise.
+Be specific and actionable. Cite actual function names and line numbers.
 
 REVIEW CATEGORIES:
-1. CORRECTNESS — logic errors, off-by-one errors, wrong assumptions, missing null/None checks
+1. CORRECTNESS — logic errors, off-by-one, wrong assumptions, missing null/None checks
 2. SECURITY — injection risks, unvalidated input, insecure defaults, unsafe operations
-3. PERFORMANCE — unnecessary loops, redundant computation, inefficient data structures, missing caching
-4. MAINTAINABILITY — complex functions, poor naming, magic numbers, deep nesting, missing abstractions
-5. ERROR HANDLING — unhandled exceptions, swallowed errors, missing validation, unhelpful messages
+3. PERFORMANCE — unnecessary loops, redundant computation, inefficient data structures
+4. MAINTAINABILITY — complex functions, poor naming, magic numbers, deep nesting
+5. ERROR HANDLING — unhandled exceptions, swallowed errors, missing validation
 6. {language.upper()} IDIOMS — non-idiomatic patterns, missed language features, {p['style_guide']} violations
 
 FOR EACH ISSUE:
 - Location: function name or line number
 - Severity: 🔴 HIGH / 🟡 MEDIUM / 🟢 LOW
-- Category: one of the six above
 - Problem: one clear sentence
 - Fix: a concrete code snippet or specific instruction
 
 OUTPUT (strict markdown):
 ## Executive Summary
-[2-3 sentence honest overall assessment]
-
-## Issues Found
-
-### 🔴 HIGH Severity
-[issues or "None found"]
-
-### 🟡 MEDIUM Severity
-[issues or "None found"]
-
-### 🟢 LOW Severity
-[issues or "None found"]
-
+## Issues Found (### 🔴 HIGH / ### 🟡 MEDIUM / ### 🟢 LOW)
 ## Positive Observations
-[genuine specific strengths — no generic filler]
+## Overall Health Score (X/10)
+## Top 3 Priority Fixes"""
 
-## Overall Health Score
-[X/10 — one sentence justification]
-
-## Top 3 Priority Fixes
-1. [most critical fix]
-2. [second]
-3. [third]"""
-
-    user = f"""Review this {language} code. Be specific — cite actual function names and line numbers.
+    user = f"""Review this {language} code thoroughly.
 
 ```{language.lower().split()[0]}
 {code}
 ```
 
 Return the complete structured review:"""
+    return system, user
 
-    return _generate(_build_prompt(system, user), max_tokens=3000, temperature=0.3)
 
-
-def sync_check(code: str, docs: str, tests: str, language: str = "Python") -> str:
-    """Compare source code against its existing documentation and test suite.
-
-    Finds mismatches: changed signatures without updated docs/tests, functions
-    without documentation or tests, and tests/docs referencing deleted functions.
-
-    Args:
-        code: Current source code string.
-        docs: Existing documentation to compare against.
-        tests: Existing test file to compare against.
-        language: Programming language name.
-
-    Returns:
-        str: Markdown sync report with status, issue list, and recommended actions.
-    """
+def _build_sync_prompt(code: str, docs: str, tests: str, language: str) -> tuple[str, str]:
     system = f"""You are a code synchronisation checker for {language} projects.
 
-Your task: compare source code against its documentation and tests to find every mismatch.
-
 CHECK FOR:
-1. Functions/methods in source with NO corresponding documentation
-2. Functions/methods in source with NO corresponding tests
-3. Signatures that CHANGED (added/removed/renamed parameters) but docs show the old signature
-4. Signatures that CHANGED but tests still call the old signature
-5. Tests calling functions that NO LONGER EXIST in source
-6. Documented functions that NO LONGER EXIST in source
+1. Functions in source with NO documentation
+2. Functions in source with NO tests
+3. Signatures that CHANGED but docs show old signature
+4. Signatures that CHANGED but tests call old signature
+5. Tests calling functions that NO LONGER EXIST
+6. Documented functions that NO LONGER EXIST
 
-FOR EACH STALE ITEM:
-- Location: function/method name
-- Type: MISSING_DOCS / MISSING_TESTS / STALE_DOCS / STALE_TESTS / GHOST_TEST / GHOST_DOC
-- Detail: specific description of what is out of sync
-- Action: exact fix needed
+FOR EACH STALE ITEM: Location, Type (MISSING_DOCS/MISSING_TESTS/STALE_DOCS/STALE_TESTS/GHOST_TEST/GHOST_DOC), Detail, Action.
 
 OUTPUT (strict markdown):
-## Sync Status
-[FULLY SYNCED ✅ or NEEDS UPDATE ⚠️]
-
-## Summary
-- Functions/methods scanned: N
-- Stale items found: N
-- Missing documentation: N
-- Missing tests: N
-- Outdated references: N
-
-## Stale Items
-[detailed list with Type, Location, Detail, Action for each]
-
-## Recommended Actions
-[ordered list, most to least critical]"""
+## Sync Status [FULLY SYNCED ✅ or NEEDS UPDATE ⚠️]
+## Summary (counts)
+## Stale Items (detailed list)
+## Recommended Actions (ordered)"""
 
     user = f"""Check this {language} codebase for sync issues.
 
-### SOURCE CODE
+### SOURCE
 ```{language.lower().split()[0]}
 {code}
 ```
-
-### EXISTING DOCUMENTATION
+### DOCS
 {docs}
-
-### EXISTING TESTS
+### TESTS
 ```{language.lower().split()[0]}
 {tests}
 ```
 
 Return the complete sync report:"""
+    return system, user
 
-    return _generate(_build_prompt(system, user), max_tokens=2500, temperature=0.1)
 
-
-def generate_readme(code: str, structure: str = "", language: str = "Python") -> str:
-    """Generate a professional README.md strictly from the source code.
-
-    Args:
-        code: Source code string to base the README on.
-        structure: Optional project structure string. Inferred from code if blank.
-        language: Programming language name.
-
-    Returns:
-        str: Clean raw markdown README without wrapping code fences.
-    """
-    structure_hint = (
-        f"\nProject structure provided:\n{structure}" if structure.strip() else ""
-    )
-
+def _build_readme_prompt(code: str, structure: str, language: str) -> tuple[str, str]:
+    structure_hint = f"\nProject structure:\n{structure}" if structure.strip() else ""
     system = f"""You are a technical writer creating professional open-source documentation for a {language} project.
 
 RULES:
-- Base EVERYTHING strictly on what exists in the provided code — do not invent features or examples
+- Base EVERYTHING strictly on what exists in the provided code
 - All code examples must use actual function/class names from the source
-- Write in clear, confident, active voice: "Generates docstrings" not "Can be used to generate"
-- No filler: "This project aims to..." → just say what it does
+- Active voice, no filler phrases
 
-REQUIRED SECTIONS (all of them):
-# ProjectName
-[one-line description]
+REQUIRED SECTIONS: # ProjectName, ## Features, ## Installation, ## Usage, ## Project Structure, ## Contributing, ## License
 
-## Features
-[bullet list — only real features visible in the code]
-
-## Installation
-[exact commands based on actual language and dependencies]
-
-## Usage
-[real working examples using actual names from the source]
-
-## Project Structure
-[based on what's provided]
-
-## Contributing
-[standard contributing guidelines]
-
-## License
-[MIT unless otherwise indicated]
-
-OUTPUT: Raw markdown only. No wrapping fences. Start directly with # ProjectName."""
+OUTPUT: Raw markdown only. No wrapping fences. Start with # ProjectName."""
 
     user = f"""Generate a complete professional README.md for this {language} project.
 {structure_hint}
@@ -542,7 +468,108 @@ Source code:
 ```
 
 Return raw markdown README:"""
+    return system, user
 
+
+# ─── PUBLIC STREAMING API ────────────────────────────────────────────────────
+
+def stream_docs(code: str, language: str = "Python") -> Generator[str, None, None]:
+    """Stream documentation generation token by token.
+
+    Args:
+        code: Source code to document.
+        language: Programming language name.
+
+    Yields:
+        str: Text chunks as they arrive from the model.
+    """
+    system, user = _build_docs_prompt(code, language)
+    yield from _generate_stream(_build_prompt(system, user), max_tokens=4096, temperature=0.15)
+
+
+def stream_tests(code: str, language: str = "Python") -> Generator[str, None, None]:
+    """Stream test suite generation token by token.
+
+    Args:
+        code: Source code to generate tests for.
+        language: Programming language name.
+
+    Yields:
+        str: Text chunks as they arrive from the model.
+    """
+    system, user = _build_tests_prompt(code, language)
+    yield from _generate_stream(_build_prompt(system, user), max_tokens=4096, temperature=0.15)
+
+
+def stream_review(code: str, language: str = "Python") -> Generator[str, None, None]:
+    """Stream code review generation token by token.
+
+    Args:
+        code: Source code to review.
+        language: Programming language name.
+
+    Yields:
+        str: Text chunks as they arrive from the model.
+    """
+    system, user = _build_review_prompt(code, language)
+    yield from _generate_stream(_build_prompt(system, user), max_tokens=3000, temperature=0.3)
+
+
+def stream_sync(
+    code: str, docs: str, tests: str, language: str = "Python"
+) -> Generator[str, None, None]:
+    """Stream sync check report token by token.
+
+    Args:
+        code: Current source code.
+        docs: Existing documentation.
+        tests: Existing test file.
+        language: Programming language name.
+
+    Yields:
+        str: Text chunks as they arrive from the model.
+    """
+    system, user = _build_sync_prompt(code, docs, tests, language)
+    yield from _generate_stream(_build_prompt(system, user), max_tokens=2500, temperature=0.1)
+
+
+def stream_readme(
+    code: str, structure: str = "", language: str = "Python"
+) -> Generator[str, None, None]:
+    """Stream README generation token by token.
+
+    Args:
+        code: Source code to base the README on.
+        structure: Optional project structure description.
+        language: Programming language name.
+
+    Yields:
+        str: Text chunks as they arrive from the model.
+    """
+    system, user = _build_readme_prompt(code, structure, language)
+    yield from _generate_stream(_build_prompt(system, user), max_tokens=2500, temperature=0.2)
+
+
+# ─── LEGACY BLOCKING API (kept for fallback) ─────────────────────────────────
+
+def generate_docs(code: str, language: str = "Python") -> str:
+    system, user = _build_docs_prompt(code, language)
+    return _generate(_build_prompt(system, user), max_tokens=4096, temperature=0.15)
+
+def generate_tests(code: str, language: str = "Python") -> str:
+    system, user = _build_tests_prompt(code, language)
+    return _generate(_build_prompt(system, user), max_tokens=4096, temperature=0.15)
+
+def generate_review(code: str, language: str = "Python") -> str:
+    system, user = _build_review_prompt(code, language)
+    return _generate(_build_prompt(system, user), max_tokens=3000, temperature=0.3)
+
+def sync_check(code: str, docs: str, tests: str, language: str = "Python") -> str:
+    system, user = _build_sync_prompt(code, docs, tests, language)
+    return _generate(_build_prompt(system, user), max_tokens=2500, temperature=0.1)
+
+def generate_readme(code: str, structure: str = "", language: str = "Python") -> str:
+    system, user = _build_readme_prompt(code, structure, language)
     result = _generate(_build_prompt(system, user), max_tokens=2500, temperature=0.2)
     return _clean_readme(result)
 
@@ -550,29 +577,14 @@ Return raw markdown README:"""
 # ─── HELPERS ─────────────────────────────────────────────────────────────────
 
 def _clean_readme(text: str) -> str:
-    """Strip wrapping code fences and remove duplicated README content.
-
-    Args:
-        text: Raw string returned by the model.
-
-    Returns:
-        str: Clean markdown string ready to display or download.
-    """
     text = text.strip()
-
-    # Strip opening fence (```markdown, ```md, or plain ```)
     if text.startswith("```"):
         first_newline = text.find("\n")
         if first_newline != -1:
             text = text[first_newline + 1:]
-
-    # Strip closing fence
     if text.rstrip().endswith("```"):
         text = text.rstrip()[:-3].rstrip()
-
-    # If model repeated itself (two top-level # headings), keep only first block
     h1_matches = [m.start() for m in re.finditer(r"^# ", text, re.MULTILINE)]
     if len(h1_matches) >= 2:
         text = text[: h1_matches[1]].rstrip()
-
     return text.strip()
