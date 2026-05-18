@@ -180,7 +180,7 @@ def _get_profile(language: str) -> dict:
 
 # ─── CORE: BLOCKING GENERATE ─────────────────────────────────────────────────
 
-def _generate(prompt: str, max_tokens: int = 4096, temperature: float = 0.15) -> str:
+def _generate(prompt: str, max_tokens: int = 4096, temperature: float = 0.15, min_tokens: int = 500) -> str:
     """Call the watsonx.ai text generation endpoint (blocking, full response).
 
     Used as a fallback for contexts where streaming isn't supported.
@@ -189,6 +189,7 @@ def _generate(prompt: str, max_tokens: int = 4096, temperature: float = 0.15) ->
         prompt: Fully formatted Llama 3 chat-template prompt string.
         max_tokens: Maximum new tokens to generate.
         temperature: Sampling temperature.
+        min_tokens: Minimum new tokens to generate (ensures substantial output).
 
     Returns:
         str: Complete generated text, stripped of whitespace.
@@ -220,11 +221,14 @@ def _generate(prompt: str, max_tokens: int = 4096, temperature: float = 0.15) ->
             "input": prompt,
             "parameters": {
                 "max_new_tokens": max_tokens,
+                "min_new_tokens": min_tokens,
                 "temperature": temperature,
+                "top_p": 0.9,
+                "repetition_penalty": 1.1,
                 "stop_sequences": ["<|eot_id|>", "---END---"],
             },
         },
-        timeout=120,
+        timeout=180,
     )
     resp.raise_for_status()
     results = resp.json().get("results", [])
@@ -234,7 +238,7 @@ def _generate(prompt: str, max_tokens: int = 4096, temperature: float = 0.15) ->
 # ─── CORE: STREAMING GENERATE ────────────────────────────────────────────────
 
 def _generate_stream(
-    prompt: str, max_tokens: int = 4096, temperature: float = 0.15
+    prompt: str, max_tokens: int = 4096, temperature: float = 0.15, min_tokens: int = 500
 ) -> Generator[str, None, None]:
     """Call the watsonx.ai streaming endpoint and yield text chunks as they arrive.
 
@@ -247,6 +251,7 @@ def _generate_stream(
         prompt: Fully formatted Llama 3 chat-template prompt string.
         max_tokens: Maximum new tokens to generate.
         temperature: Sampling temperature.
+        min_tokens: Minimum new tokens to generate (ensures substantial output).
 
     Yields:
         str: Text chunks as they are received from the model.
@@ -278,12 +283,15 @@ def _generate_stream(
             "input": prompt,
             "parameters": {
                 "max_new_tokens": max_tokens,
+                "min_new_tokens": min_tokens,
                 "temperature": temperature,
+                "top_p": 0.9,
+                "repetition_penalty": 1.1,
                 "stop_sequences": ["<|eot_id|>", "---END---"],
             },
         },
         stream=True,
-        timeout=120,
+        timeout=180,
     ) as resp:
         resp.raise_for_status()
         for raw_line in resp.iter_lines():
@@ -318,58 +326,98 @@ def _build_docs_prompt(code: str, language: str) -> tuple[str, str]:
 
 Your task: add comprehensive documentation to {language} source code.
 
-RULES:
-- Use {p['doc_style']} — no other format
-- Document EVERY function, method, and class — do not skip any
-- For each function include: one-line summary, Args (name, type, description), Returns (type + description), Raises (exception type + when), and an Example for non-obvious functions
-- Do NOT change any logic, variable names, or structure — add documentation only
-- Follow {p['style_guide']} throughout
+CRITICAL REQUIREMENTS (YOU MUST FOLLOW ALL):
+1. Use {p['doc_style']} format EXCLUSIVELY — no other format is acceptable
+2. Document EVERY SINGLE function, method, and class — skipping any is forbidden
+3. For EACH function you MUST include:
+   - One-line summary (what it does)
+   - Args section: name, type, and detailed description for EVERY parameter
+   - Returns section: type and detailed description of return value
+   - Raises section: exception type and exact condition when raised
+   - Example section: concrete usage example for non-trivial functions
+4. Do NOT modify any logic, variable names, or code structure — ONLY add documentation
+5. Follow {p['style_guide']} conventions strictly
+6. Write detailed, professional documentation — minimum 2-3 sentences per function description
 
-OUTPUT STRUCTURE:
-1. The complete source file with documentation added
-2. Exactly this line by itself: ### MARKDOWN_DOCS ###
-3. A markdown API reference with:
-   - Module overview (2-3 sentences)
-   - One section per class (description + attributes table)
-   - One section per public function (signature, description, parameter table, returns, exceptions, example)"""
+OUTPUT STRUCTURE (MANDATORY):
+Part 1: Complete source file with documentation added to every function/class
+Part 2: Exactly this separator line by itself: ### MARKDOWN_DOCS ###
+Part 3: Comprehensive markdown API reference containing:
+   - Module overview (3-4 sentences explaining purpose and main components)
+   - One section per class with: description, attributes table, usage example
+   - One section per public function with: signature, detailed description, parameter table, returns description, exceptions list, code example
 
-    user = f"""Add complete {p['doc_style']} documentation to every function and class in this {language} code.
+QUALITY STANDARDS:
+- Minimum 500 tokens of documentation
+- Every function must have at least 3 sentences of description
+- All parameters must be documented with types and descriptions
+- Include realistic code examples that demonstrate actual usage"""
 
+    user = f"""Add complete, comprehensive {p['doc_style']} documentation to every function and class in this {language} code.
+
+SOURCE CODE:
 ```{language.lower().split()[0]}
 {code}
 ```
 
-Return: documented source code → ### MARKDOWN_DOCS ### → markdown API reference."""
+REQUIRED OUTPUT FORMAT:
+1. Fully documented source code (with docstrings added to every function/class)
+2. The separator: ### MARKDOWN_DOCS ###
+3. Complete markdown API reference documentation
+
+Begin generating the documented code now:"""
     return system, user
 
 
 def _build_tests_prompt(code: str, language: str) -> tuple[str, str]:
     p = _get_profile(language)
-    system = f"""You are a senior {language} engineer specialising in test-driven development.
+    system = f"""You are a senior {language} engineer specializing in test-driven development and comprehensive test coverage.
 
-Your task: write a production-quality test suite using {p['test_framework']} for {language} code.
+Your task: write a production-quality, comprehensive test suite using {p['test_framework']} for {language} code.
 
-RULES:
-- {p['import_style']}
-- {p['test_conventions']}
-- Cover ALL of the following for every public function/method:
-  1. Happy path — normal expected input and output
-  2. Edge cases — empty input, zero, None/null, empty string, empty list/array
-  3. Boundary values — min/max values, single-element collections
-  4. Error conditions — invalid types, out-of-range values, expected exceptions
-- Test names must read as sentences: test_add_two_positive_numbers_returns_correct_sum
-- Every test must be self-contained and runnable independently
-- Write REAL tests — no placeholder comments or empty test bodies
+CRITICAL REQUIREMENTS (YOU MUST FOLLOW ALL):
+1. Import setup: {p['import_style']}
+2. Test conventions: {p['test_conventions']}
+3. Coverage requirements - For EVERY public function/method you MUST create tests for:
+   a) Happy path — normal expected inputs with correct outputs (minimum 2 test cases)
+   b) Edge cases — empty input, zero, None/null, empty string, empty list/array, whitespace-only strings
+   c) Boundary values — minimum values, maximum values, single-element collections, large inputs
+   d) Error conditions — invalid types, out-of-range values, all expected exceptions with proper assertions
+4. Test naming: Use descriptive names that read as sentences (e.g., test_add_two_positive_numbers_returns_correct_sum)
+5. Test independence: Every test MUST be self-contained and runnable independently
+6. Real implementations: Write COMPLETE, RUNNABLE tests — no placeholder comments, no empty test bodies, no TODO markers
+7. Fixtures: Create fixtures for common setup/teardown operations
+8. Assertions: Use descriptive assertion messages explaining what is being tested
 
-OUTPUT: The complete test file only. No explanation. No markdown fences wrapping the whole file."""
+QUALITY STANDARDS:
+- Minimum 1000 tokens of test code
+- At least 4-6 test functions per public method/function
+- Include module-level docstring explaining what is being tested
+- Group related tests using test classes or describe blocks
+- Add comments explaining complex test scenarios
+- Use parametrized tests for similar test cases with different inputs
 
-    user = f"""Write a complete {p['test_framework']} test suite for this {language} code.
+OUTPUT FORMAT (MANDATORY):
+- Complete, runnable test file with all imports
+- NO markdown code fences around the entire file
+- NO explanatory text before or after the code
+- Start directly with imports and end with the last test function"""
 
+    user = f"""Write a complete, comprehensive {p['test_framework']} test suite for this {language} code.
+
+SOURCE CODE TO TEST:
 ```{language.lower().split()[0]}
 {code}
 ```
 
-Return the complete runnable test file:"""
+REQUIREMENTS:
+- Test EVERY public function and method
+- Include happy path, edge cases, boundaries, and error conditions
+- Minimum 4-6 tests per function
+- Use fixtures for setup
+- Write complete, runnable code
+
+Begin generating the complete test file now:"""
     return system, user
 
 
@@ -484,7 +532,7 @@ def stream_docs(code: str, language: str = "Python") -> Generator[str, None, Non
         str: Text chunks as they arrive from the model.
     """
     system, user = _build_docs_prompt(code, language)
-    yield from _generate_stream(_build_prompt(system, user), max_tokens=4096, temperature=0.15)
+    yield from _generate_stream(_build_prompt(system, user), max_tokens=8000, temperature=0.25, min_tokens=800)
 
 
 def stream_tests(code: str, language: str = "Python") -> Generator[str, None, None]:
@@ -498,7 +546,7 @@ def stream_tests(code: str, language: str = "Python") -> Generator[str, None, No
         str: Text chunks as they arrive from the model.
     """
     system, user = _build_tests_prompt(code, language)
-    yield from _generate_stream(_build_prompt(system, user), max_tokens=4096, temperature=0.15)
+    yield from _generate_stream(_build_prompt(system, user), max_tokens=8000, temperature=0.25, min_tokens=1000)
 
 
 def stream_review(code: str, language: str = "Python") -> Generator[str, None, None]:
@@ -512,7 +560,7 @@ def stream_review(code: str, language: str = "Python") -> Generator[str, None, N
         str: Text chunks as they arrive from the model.
     """
     system, user = _build_review_prompt(code, language)
-    yield from _generate_stream(_build_prompt(system, user), max_tokens=3000, temperature=0.3)
+    yield from _generate_stream(_build_prompt(system, user), max_tokens=5000, temperature=0.3, min_tokens=600)
 
 
 def stream_sync(
@@ -530,7 +578,7 @@ def stream_sync(
         str: Text chunks as they arrive from the model.
     """
     system, user = _build_sync_prompt(code, docs, tests, language)
-    yield from _generate_stream(_build_prompt(system, user), max_tokens=2500, temperature=0.1)
+    yield from _generate_stream(_build_prompt(system, user), max_tokens=4000, temperature=0.15, min_tokens=500)
 
 
 def stream_readme(
@@ -547,7 +595,7 @@ def stream_readme(
         str: Text chunks as they arrive from the model.
     """
     system, user = _build_readme_prompt(code, structure, language)
-    yield from _generate_stream(_build_prompt(system, user), max_tokens=2500, temperature=0.2)
+    yield from _generate_stream(_build_prompt(system, user), max_tokens=4000, temperature=0.25, min_tokens=600)
 
 
 # ─── LEGACY BLOCKING API (kept for fallback) ─────────────────────────────────
